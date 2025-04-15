@@ -4,22 +4,14 @@ from simpleeval import SimpleEval
 
 def construir_contexto(variables: list, objetos: dict) -> dict:
     """
-    Construye un contexto jerárquico con objetos anidados:
-    por ejemplo: luke.mass → objetos['luke']['mass']
+    Construye un contexto jerárquico para simpleeval, por ejemplo:
+    dugtrio.base_experience → objetos["dugtrio"]["base_experience"]
     """
     contexto = {}
-    for nombre in variables:
-        if nombre not in objetos:
-            continue
-        partes = nombre.split(".")
-        if len(partes) == 1:
-            contexto[nombre] = objetos[nombre]
-        else:
-            actual = contexto
-            for parte in partes[:-1]:
-                actual = actual.setdefault(parte, {})
-            actual[partes[-1]] = objetos[nombre]
+    for nombre, atributos in objetos.items():
+        contexto[nombre] = atributos  # ejemplo: contexto["dugtrio"] = { "base_experience": 170 }
     return contexto
+
 
 def evaluar_expresion(expression: str, contexto: dict) -> float:
     """
@@ -34,10 +26,12 @@ def evaluar_expresion(expression: str, contexto: dict) -> float:
 
 def redondear_resultado(valor: float) -> float:
     """
-    Redondea el resultado a 10 decimales como lo exige la prueba.
+    Redondea el resultado a 10 decimales, devolviendo float
+    pero con precisión visible al convertirlo a string.
     """
     try:
-        return round(float(valor), 10)
+        return float(format(valor, ".10f"))
     except Exception as e:
         print(f"[❌] Error al redondear: {e}")
         return None
+

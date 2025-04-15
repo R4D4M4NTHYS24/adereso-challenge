@@ -21,17 +21,19 @@ def interpretar_enunciado(enunciado: str) -> dict:
     """
 
     prompt_sistema = (
-        "Tu trabajo es convertir un enunciado en lenguaje natural en una expresión de Python.\n"
-        "Devuelve solo un JSON válido con dos claves:\n"
-        "- 'expression': una fórmula lista para evaluar (por ejemplo: 'luke.mass * vulpix.base_experience')\n"
-        "- 'variables': una lista de los nombres de variables requeridas\n"
-        "Ejemplo de salida válida:\n"
-        "{\n"
-        "  \"expression\": \"luke.mass * vulpix.base_experience\",\n"
-        "  \"variables\": [\"luke\", \"vulpix\"]\n"
-        "}\n"
-        "No expliques nada. Solo responde con el JSON."
-    )
+    "Tu trabajo es convertir un enunciado en lenguaje natural en una expresión de Python.\n"
+    "Devuelve solo un JSON válido con dos claves:\n"
+    "- 'expression': una fórmula lista para evaluar (por ejemplo: 'luke.mass * vulpix.base_experience')\n"
+    "- 'variables': una lista de los nombres de variables requeridas\n"
+    "Las variables deben seguir el formato 'entidad.atributo'. Por ejemplo: 'luke.mass' o 'vulpix.base_experience'. No uses formato 'luke_mass' ni 'lukeMass'.\n"
+    "Ejemplo de salida válida:\n"
+    "{\n"
+    "  \"expression\": \"luke.mass * vulpix.base_experience\",\n"
+    "  \"variables\": [\"luke\", \"vulpix\"]\n"
+    "}\n"
+    "No expliques nada. Solo responde con el JSON."
+)
+
 
     payload = {
         "model": "gpt-4o-mini",

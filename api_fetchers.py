@@ -3,6 +3,13 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import requests
 
+def safe_float(value):
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def get_pokemon(name: str) -> dict:
     url = f"https://pokeapi.co/api/v2/pokemon/{name.lower()}"
     try:
@@ -14,9 +21,9 @@ def get_pokemon(name: str) -> dict:
             "height": data.get("height"),
             "weight": data.get("weight"),
         }
-    except Exception as e:
-        print(f"[❌] Error al obtener Pokémon {name}: {e}")
-        return {}
+    except:
+        return {}  # Silencioso
+
 
 def get_starwars_character(name: str) -> dict:
     url = f"https://swapi.dev/api/people/?search={name}"
@@ -29,8 +36,8 @@ def get_starwars_character(name: str) -> dict:
         character = results[0]
         return {
             "name": character.get("name"),
-            "height": float(character.get("height", 0)),
-            "mass": float(character.get("mass", 0)),
+            "height": safe_float(character.get("height", 0)),
+            "mass": safe_float(character.get("mass", 0)),
             "homeworld": character.get("homeworld")
         }
     except Exception as e:
@@ -48,11 +55,11 @@ def get_starwars_planet(name: str) -> dict:
         planet = results[0]
         return {
             "name": planet.get("name"),
-            "rotation_period": float(planet.get("rotation_period", 0)),
-            "orbital_period": float(planet.get("orbital_period", 0)),
-            "diameter": float(planet.get("diameter", 0)),
-            "surface_water": float(planet.get("surface_water", 0)),
-            "population": float(planet.get("population", 0)),
+            "rotation_period": safe_float(planet.get("rotation_period", 0)),
+            "orbital_period": safe_float(planet.get("orbital_period")),
+            "diameter": safe_float(planet.get("diameter", 0)),
+            "surface_water": safe_float(planet.get("surface_water", 0)),
+            "population": safe_float(planet.get("population", 0)),
         }
     except Exception as e:
         print(f"[❌] Error al obtener planeta {name}: {e}")
