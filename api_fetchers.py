@@ -1,66 +1,127 @@
 # api_fetchers.py
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 import requests
+import urllib3
+import re
+from functools import lru_cache
+from typing import Tuple, Optional
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Sesiones HTTP persistentes
+session_poke = requests.Session()
+session_poke.verify = False
+session_sw = requests.Session()
+session_sw.verify = False
+
+TIMEOUT = 2  # segundos
+
+# Caches de entidad completas
+pokemon_cache = {}
+people_cache = {}
+planet_cache = {}
 
 def safe_float(value):
     try:
         return float(value)
     except (ValueError, TypeError):
-        return 0.0
+        return None
 
+def normalize_pokemon_name(name: str) -> str:
+    name = name.lower().strip()
+    name = re.sub(r"[\.']", "", name)
+    name = name.replace("♀", "-f").replace("♂", "-m")
+    name = re.sub(r"\s+", "-", name)
+    # Casos especiales
+    name = name.replace("mister-mime", "mr-mime")
+    return name
+
+def normalize_swapi_name(name: str) -> str:
+    name = name.strip()
+    # Eliminar prefijos honoríficos
+    for p in ["General ", "Captain ", "Admiral ", "Master ", "Senator ", "Darth "]:
+        if name.startswith(p):
+            name = name[len(p):]
+    # Correcciones de guion
+    replacements = {"Obi Wan": "Obi-Wan", "Qui Gon": "Qui-Gon"}
+    for old, new in replacements.items():
+        name = name.replace(old, new)
+    return name
 
 def get_pokemon(name: str) -> dict:
-    url = f"https://pokeapi.co/api/v2/pokemon/{name.lower()}"
+    norm = normalize_pokemon_name(name)
+    if norm in pokemon_cache:
+        return pokemon_cache[norm]
+    url = f"https://pokeapi.co/api/v2/pokemon/{norm}"
     try:
-        response = requests.get(url, verify=False)
-        response.raise_for_status()
-        data = response.json()
-        return {
+        r = session_poke.get(url, timeout=TIMEOUT)
+        r.raise_for_status()
+        data = r.json()
+        pokemon_cache[norm] = {
             "base_experience": data.get("base_experience"),
             "height": data.get("height"),
             "weight": data.get("weight"),
         }
-    except:
-        return {}  # Silencioso
-
-
-def get_starwars_character(name: str) -> dict:
-    url = f"https://swapi.dev/api/people/?search={name}"
-    try:
-        response = requests.get(url, verify=False)
-        response.raise_for_status()
-        results = response.json().get("results", [])
-        if not results:
-            return {}
-        character = results[0]
-        return {
-            "name": character.get("name"),
-            "height": safe_float(character.get("height", 0)),
-            "mass": safe_float(character.get("mass", 0)),
-            "homeworld": character.get("homeworld")
-        }
-    except Exception as e:
-        print(f"[❌] Error al obtener personaje {name}: {e}")
+        return pokemon_cache[norm]
+    except Exception:
         return {}
 
-def get_starwars_planet(name: str) -> dict:
-    url = f"https://swapi.dev/api/planets/?search={name}"
-    try:
-        response = requests.get(url, verify=False)
-        response.raise_for_status()
-        results = response.json().get("results", [])
-        if not results:
-            return {}
-        planet = results[0]
-        return {
-            "name": planet.get("name"),
-            "rotation_period": safe_float(planet.get("rotation_period", 0)),
-            "orbital_period": safe_float(planet.get("orbital_period")),
-            "diameter": safe_float(planet.get("diameter", 0)),
-            "surface_water": safe_float(planet.get("surface_water", 0)),
-            "population": safe_float(planet.get("population", 0)),
-        }
-    except Exception as e:
-        print(f"[❌] Error al obtener planeta {name}: {e}")
+def fetch_swapi_entity(name: str) -> Tuple[Optional[str], dict]:
+    """
+    Retorna:
+      - ("people", data)   si lo encontró como personaje
+      - ("planets", data)  si lo encontró como planeta
+      - (None, {})         si no encontró nada
+    """
+    norm = normalize_swapi_name(name)
+    # Intentar persona
+    r = session_sw.get(f"https://swapi.dev/api/people/?search={norm}", timeout=TIMEOUT)
+    if r.ok:
+        results = r.json().get("results", [])
+        for c in results:
+            if c.get("name", "").lower() == norm.lower():
+                return "people", c
+        if results:
+            return "people", results[0]
+    # Intentar planeta
+    r = session_sw.get(f"https://swapi.dev/api/planets/?search={norm}", timeout=TIMEOUT)
+    if r.ok:
+        results = r.json().get("results", [])
+        for p in results:
+            if p.get("name", "").lower() == norm.lower():
+                return "planets", p
+        if results:
+            return "planets", results[0]
+    return None, {}
+
+def get_swapi(name: str) -> dict:
+    # Verificar cachés primero
+    if name in people_cache:
+        return people_cache[name]
+    if name in planet_cache:
+        return planet_cache[name]
+
+    kind, data = fetch_swapi_entity(name)
+    if not data:
         return {}
+
+    if kind == "people":
+        entry = {
+            "name": data.get("name"),
+            "height": safe_float(data.get("height")),
+            "mass": safe_float(data.get("mass")),
+            "homeworld": data.get("homeworld"),
+        }
+        people_cache[name] = entry
+    else:
+        entry = {
+            "name": data.get("name"),
+            "rotation_period": safe_float(data.get("rotation_period")),
+            "orbital_period": safe_float(data.get("orbital_period")),
+            "diameter": safe_float(data.get("diameter")),
+            "surface_water": safe_float(data.get("surface_water")),
+            "population": safe_float(data.get("population")),
+        }
+        planet_cache[name] = entry
+
+    return entry
