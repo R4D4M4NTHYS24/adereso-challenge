@@ -1,111 +1,94 @@
-# production_run.py
-import os
-import time
-import requests
+# production_run.py  (logging compacto)
+import os, time, json, requests, math
 from dotenv import load_dotenv
+from requests.exceptions import ReadTimeout
 from gpt_interpreter import interpretar_enunciado
-from utils import evaluar_expresion, redondear_resultado
+from utils           import evaluar_expresion, redondear_resultado
 
 load_dotenv()
-TOKEN = os.getenv("ADERESO_TOKEN")
+TOKEN   = os.getenv("ADERESO_TOKEN")
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 
 START_URL = "https://recruiting.adere.so/challenge/start"
 SOLVE_URL = "https://recruiting.adere.so/challenge/solution"
 
-# Reserva de tiempo al final (segundos)
-CUTOFF = 5
+TIMEOUT   = 5.0   # todos los GET/POST
+CUTOFF    = 8     # reserva final
+VERBOSE   = True  # True = compacto ; False = silencio total
+LOG_EVERY = 10    # imprime 1 de cada 10 problemas
 
-# Logging detallado (desactívalo en real para ahorrar I/O)
-VERBOSE = False
+# ─────────────────────────────────────────────────────────────
+def dlog(msg, n=None):
+    """Log compacto controlado por VERBOSE & LOG_EVERY"""
+    if not VERBOSE:
+        return
+    if n is None or n % LOG_EVERY == 0:
+        print(msg)
+
+def safe_post(payload, retries=1):
+    for i in range(retries + 1):
+        try:
+            return requests.post(SOLVE_URL, headers=HEADERS,
+                                 json=payload, timeout=TIMEOUT)
+        except ReadTimeout:
+            if i == retries:
+                raise
+            dlog("  ⏳ POST timeout, reintentando…")
 
 def main():
-    if VERBOSE:
-        print(f"🚀 Iniciando prueba oficial (verbose={VERBOSE})\n")
-    start_ts = time.time()
-    aciertos = 0
-    intento = 0
+    try:
+        r = requests.get(START_URL, headers=HEADERS, timeout=TIMEOUT)
+        r.raise_for_status()
+        problema = r.json()            # {'id':..,'problem':..}
+    except Exception as e:
+        print("❌ No se pudo iniciar:", e)
+        return
 
-    # 1️⃣ Iniciar la prueba real
-    resp = requests.get(START_URL, headers=HEADERS, timeout=2)
-    resp.raise_for_status()
-    problema = resp.json()
+    t0          = time.time()
+    aciertos    = 0
+    total_count = 0
 
-    # 2️⃣ Loop principal
-    while True:
-        elapsed = time.time() - start_ts
-        if elapsed >= 180 or (180 - elapsed) < CUTOFF:
-            break
+    while time.time() - t0 < 180 - CUTOFF:
+        pid, texto = problema["id"], problema["problem"]
+        total_count += 1
+        dlog(f"\n🧩 #{total_count} id={pid[:6]}… {texto[:70]}…", total_count)
 
-        pid = problema.get("id")
-        texto = problema.get("problem", "")
-
-        if VERBOSE:
-            intento += 1
-            print(f"\n🧩 Problema #{intento} (id: {pid}):")
-            print(texto)
-
-        # Interpretar
+        # ── interpretar y evaluar ───────────────────────────
         expr = interpretar_enunciado(texto)
-        if not expr:
-            if VERBOSE:
-                print("[⚠] No DSL, salto.")
-            # Aún debemos llamar al endpoint para avanzar:
-            problema = {}  # forzar next GET
-        else:
-            if VERBOSE:
-                print(f"✅ DSL: {expr}")
-
-            # Evaluar
+        raw  = None
+        if expr:
             try:
                 raw = evaluar_expresion(expr)
             except Exception as e:
-                raw = None
-                if VERBOSE:
-                    print(f"[❌] Error eval: {e}")
+                dlog(f"  ⚠️ Eval error: {e}", total_count)
 
-            if raw is None:
-                if VERBOSE:
-                    print("[🟡] Resultado crudo inválido, salto.")
-            else:
-                if VERBOSE:
-                    print(f"🔢 Crudo: {raw}")
+        final  = redondear_resultado(raw) if raw is not None else None
+        answer = final if final is not None else 0
 
-                # Redondear
-                final = redondear_resultado(raw)
-                if final is None:
-                    if VERBOSE:
-                        print("[🟡] No redondeable, salto.")
-                else:
-                    if VERBOSE:
-                        print(f"🎯 Final: {final}")
+        # ── POST solución ──────────────────────────────────
+        try:
+            post = safe_post({"problem_id": pid, "answer": answer}, retries=1)
+        except Exception as e:
+            print("❌ POST fallido:", e)
+            break
 
-                    # Enviar solución
-                    payload = {"problem_id": pid, "answer": final}
-                    post = requests.post(SOLVE_URL, headers=HEADERS, json=payload, timeout=2)
-                    # Si el server indica fin (código distinto de 200), rompemos
-                    if post.status_code != 200:
-                        if VERBOSE:
-                            print(f"[ℹ] Test terminado (status {post.status_code}).")
-                        break
+        if post.status_code == 401:
+            print("⚠️  Token inválido/expirado.")
+            break
 
-                    problema = post.json()
-                    aciertos += 1
-                    if VERBOSE:
-                        print(f"✅ Acierto #{aciertos}")
+        data = post.json()
+        nxt  = data.get("next_problem")
+        if not nxt:                     # terminó la sesión
+            dlog(f"ℹ️ Fin servidor: {data}")
+            break
 
-        # En caso de salto sin POST (DSL roto), pedimos manualmente el siguiente
-        if not problema.get("id"):
-            try:
-                resp = requests.get(START_URL, headers=HEADERS, timeout=2)
-                resp.raise_for_status()
-                problema = resp.json()
-            except:
-                if VERBOSE:
-                    print("[⚠] No pude avanzar problema, reintentando...")
+        if final is not None:           # respuesta correcta
+            aciertos += 1
+            dlog(f"  ✅ Aciertos parciales: {aciertos}", total_count)
 
-    total = time.time() - start_ts
-    print(f"\n⏱️ Prueba finalizada. Aciertos: {aciertos} en {total:.1f}s")
+        problema = nxt                  # avanzar
+
+    print(f"\n⏱️ Terminado. Correctas: {aciertos}  |  Procesadas: {total_count}")
 
 if __name__ == "__main__":
     main()

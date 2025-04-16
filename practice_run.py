@@ -9,14 +9,14 @@ load_dotenv()
 TOKEN = os.getenv("ADERESO_TOKEN")
 BASE_URL = "https://recruiting.adere.so/challenge/test"
 HEADERS = {"Authorization": f"Bearer {TOKEN}"}
-CUTOFF = 5  # segundos de reserva para no comenzar un nuevo problema si queda menos
+CUTOFF = 3  # segundos de reserva para no comenzar un nuevo problema si queda menos
 
 # Activa/desactiva el logging detallado
-VERBOSE = True
+VERBOSE = False
 
 def get_problem():
     try:
-        r = requests.get(BASE_URL, headers=HEADERS, timeout=2)
+        r = requests.get(BASE_URL, headers=HEADERS, timeout=1.5)
         r.raise_for_status()
         return r.json()
     except Exception:
